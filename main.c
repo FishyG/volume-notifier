@@ -51,11 +51,15 @@ static void node_param(void* _data, int seq, uint32_t id, uint32_t index, uint32
         int volume = round(cbrt(elem->value) * 100);
         float third = 100./3;
         char* icon = icons[(int)ceil(volume/third)];
+        char percentage[5];
 
+        // Print the percentage (ie: 69%)
+        snprintf(percentage, 5, "%d%%", volume);
+        
         if (data->notification == NULL || notify_notification_get_closed_reason(data->notification) != -1) {
-            data->notification = notify_notification_new("Volume", NULL, icon);
+            data->notification = notify_notification_new(percentage, NULL, icon);
         } else {
-            notify_notification_update(data->notification, "Volume", NULL, icon);
+            notify_notification_update(data->notification, percentage, NULL, icon);
         }
 
         notify_notification_set_hint(data->notification, "value", g_variant_new_int32(volume));
