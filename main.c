@@ -58,7 +58,7 @@ static void node_param(void* _data, int seq, uint32_t id, uint32_t index, uint32
             notify_notification_update(data->notification, "Volume", NULL, icon);
         }
 
-        notify_notification_set_hint(data->notification, "value", g_variant_new("u", volume));
+        notify_notification_set_hint(data->notification, "value", g_variant_new_int32(volume));
         notify_notification_set_timeout(data->notification, 10000);
         notify_notification_show(data->notification, NULL);
     }
