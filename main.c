@@ -96,7 +96,7 @@ static const struct pw_node_events node_events = {
 void search_default_sink(void* _data, uint32_t id, uint32_t permissions, const char* type, uint32_t version, const struct spa_dict* props) {
     state_t* data = _data;
 
-    if (strcmp(type, PW_TYPE_INTERFACE_Node) != 0) return;
+    if (data->node != NULL || strcmp(type, PW_TYPE_INTERFACE_Node) != 0) return;
 
     const char* name = spa_dict_lookup(props, "node.name");
 
