@@ -48,6 +48,7 @@ typedef struct {
     struct spa_hook metadata_listener;
 
     NotifyNotification* notification;
+
     char* default_sink;
     bool is_default_configured;
 } state_t;
@@ -92,6 +93,26 @@ static const struct pw_node_events node_events = {
     .param = node_param,
 };
 
+void search_default_sink(void* _data, uint32_t id, uint32_t permissions, const char* type, uint32_t version, const struct spa_dict* props) {
+    state_t* data = _data;
+
+    if (strcmp(type, PW_TYPE_INTERFACE_Node) != 0) return;
+
+    const char* name = spa_dict_lookup(props, "node.name");
+
+    if (strcmp(name, data->default_sink)) return;
+
+    data->node = pw_registry_bind(data->registry, id, type, PW_VERSION_CLIENT, 0);
+    uint32_t param_id = 2;
+    pw_node_subscribe_params(data->node, &param_id, 1);
+    pw_node_add_listener(data->node, &data->node_listener, &node_events, data);
+}
+
+static const struct pw_registry_events registry_sink_events = {
+    PW_VERSION_REGISTRY_EVENTS,
+    .global = search_default_sink,
+};
+
 int metadata_property(void* _data, uint32_t subject, const char* key, const char* type, const char* value) {
     state_t* data = _data;
 
@@ -119,6 +140,14 @@ int metadata_property(void* _data, uint32_t subject, const char* key, const char
         data->is_default_configured = is_configured;
     }
 
+    // Destroy the existing registry and listener
+    pw_proxy_destroy((struct pw_proxy *)data->registry);
+    spa_hook_remove(&data->registry_listener);
+
+    // Recreate the registry and re-register the listener
+    data->registry = pw_core_get_registry(data->core, PW_VERSION_REGISTRY, 0);
+    pw_registry_add_listener(data->registry, &data->registry_listener, &registry_sink_events, data);
+
     return 0;
 }
 
@@ -127,7 +156,7 @@ static const struct pw_metadata_events metadata_events = {
     .property = metadata_property,
 };
 
-static void registry_event_global(void* _data, uint32_t id, uint32_t permissions, const char* type, uint32_t version, const struct spa_dict* props) {
+static void search_default_metadata(void* _data, uint32_t id, uint32_t permissions, const char* type, uint32_t version, const struct spa_dict* props) {
     state_t* data = _data;
 
     if (data->metadata != NULL || strcmp(type, PW_TYPE_INTERFACE_Metadata) != 0) return;
@@ -140,9 +169,9 @@ static void registry_event_global(void* _data, uint32_t id, uint32_t permissions
     pw_metadata_add_listener(data->metadata, &data->metadata_listener, &metadata_events, data);
 }
 
-static const struct pw_registry_events registry_events = {
+static const struct pw_registry_events registry_metadata_events = {
     PW_VERSION_REGISTRY_EVENTS,
-    .global = registry_event_global,
+    .global = search_default_metadata,
 };
 
 int main(int argc, char* argv[]) {
@@ -162,7 +191,7 @@ int main(int argc, char* argv[]) {
 
     data.registry = pw_core_get_registry(data.core, PW_VERSION_REGISTRY, 0);
 
-    pw_registry_add_listener(data.registry, &data.registry_listener, &registry_events, &data);
+    pw_registry_add_listener(data.registry, &data.registry_listener, &registry_metadata_events, &data);
 
     pw_main_loop_run(data.loop);
 
