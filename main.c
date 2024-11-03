@@ -12,6 +12,7 @@
 #include "pipewire/core.h"
 #include "pipewire/extensions/metadata.h"
 #include "pipewire/node.h"
+#include "pipewire/proxy.h"
 #include "spa/pod/builder.h"
 #include "spa/pod/iter.h"
 #include "spa/pod/pod.h"
@@ -50,7 +51,6 @@ typedef struct {
     NotifyNotification* notification;
 
     char* default_sink;
-    bool is_default_configured;
 } state_t;
 
 static void node_param(void* _data, int seq, uint32_t id, uint32_t index, uint32_t next, const struct spa_pod* param) {
@@ -83,7 +83,7 @@ static void node_param(void* _data, int seq, uint32_t id, uint32_t index, uint32
         }
 
         notify_notification_set_hint(data->notification, "value", g_variant_new_int32(volume));
-        notify_notification_set_timeout(data->notification, 10000);
+        notify_notification_set_timeout(data->notification, 3500);
         notify_notification_show(data->notification, NULL);
     }
 }
@@ -113,15 +113,11 @@ static const struct pw_registry_events registry_sink_events = {
     .global = search_default_sink,
 };
 
-int metadata_property(void* _data, uint32_t subject, const char* key, const char* type, const char* value) {
+int get_default_sink_name(void* _data, uint32_t subject, const char* key, const char* type, const char* value) {
     state_t* data = _data;
 
-    if (data->default_sink != NULL) return 0;
-
-    bool is_configured = strstr(key, "configured") != NULL;
     if (spa_strstartswith(key, "default") && strstr(key, "audio.sink") == NULL) return 0;
     if (strcmp(type, "Spa:String:JSON") != 0) return 0;
-    if (!is_configured && data->is_default_configured) return 0;
 
     struct spa_pod_builder builder;
     uint8_t buff[1024];
@@ -137,12 +133,15 @@ int metadata_property(void* _data, uint32_t subject, const char* key, const char
         if (item->key != 2) continue;
         char* name = (char*)&item->value + sizeof(struct spa_pod);
         data->default_sink = name;
-        data->is_default_configured = is_configured;
     }
 
     // Destroy the existing registry and listener
-    pw_proxy_destroy((struct pw_proxy *)data->registry);
+    pw_proxy_destroy((struct pw_proxy*)data->registry);
     spa_hook_remove(&data->registry_listener);
+    if (data->node != NULL) {
+        pw_proxy_destroy((struct pw_proxy*)data->node);
+    }
+    data->node = NULL;
 
     // Recreate the registry and re-register the listener
     data->registry = pw_core_get_registry(data->core, PW_VERSION_REGISTRY, 0);
@@ -153,7 +152,7 @@ int metadata_property(void* _data, uint32_t subject, const char* key, const char
 
 static const struct pw_metadata_events metadata_events = {
     PW_VERSION_METADATA_EVENTS,
-    .property = metadata_property,
+    .property = get_default_sink_name,
 };
 
 static void search_default_metadata(void* _data, uint32_t id, uint32_t permissions, const char* type, uint32_t version, const struct spa_dict* props) {
