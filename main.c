@@ -116,6 +116,7 @@ static const struct pw_registry_events registry_sink_events = {
 int get_default_sink_name(void* _data, uint32_t subject, const char* key, const char* type, const char* value) {
     state_t* data = _data;
 
+    if (value == NULL) return 0;
     if (spa_strstartswith(key, "default") && strstr(key, "audio.sink") == NULL) return 0;
     if (strcmp(type, "Spa:String:JSON") != 0) return 0;
 
@@ -140,6 +141,7 @@ int get_default_sink_name(void* _data, uint32_t subject, const char* key, const 
     spa_hook_remove(&data->registry_listener);
     if (data->node != NULL) {
         pw_proxy_destroy((struct pw_proxy*)data->node);
+        spa_hook_remove(&data->node_listener);
     }
     data->node = NULL;
 
