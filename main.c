@@ -42,50 +42,51 @@ typedef struct {
     struct pw_registry* registry;
     struct spa_hook registry_listener;
 
-    struct pw_node* node;
-    struct spa_hook node_listener;
-
     struct pw_metadata* metadata;
     struct spa_hook metadata_listener;
 
     NotifyNotification* notification;
 
+    struct pw_node* node;
+    struct spa_hook node_listener;
+
     char* default_sink;
+    int current_volume;
 } state_t;
 
-static void node_param(void* _data, int seq, uint32_t id, uint32_t index, uint32_t next, const struct spa_pod* param) {
+static void node_param(void* data, int seq, uint32_t id, uint32_t index, uint32_t next, const struct spa_pod* param) {
     if (param->type != SPA_TYPE_Object) return;
 
-    state_t* data = _data;
+    state_t* state = data;
 
     struct spa_pod_object* object = (struct spa_pod_object*)param;
-    struct spa_pod_prop* prop;
+    const struct spa_pod_prop* prop = spa_pod_object_find_prop(object, spa_pod_prop_first(&object->body), 65544);
 
-    SPA_POD_OBJECT_FOREACH(object, prop) {
-        if (prop->key != 65544) continue;
-        if (prop->value.type != SPA_TYPE_Array) continue;
+    if (prop == NULL || prop->value.type != SPA_TYPE_Array) return;
 
-        struct spa_pod_array* arr = (struct spa_pod_array*)&prop->value;
-        struct spa_pod_float* elem = (struct spa_pod_float*)&arr->body.child;
+    struct spa_pod_array* arr = (struct spa_pod_array*)&prop->value;
+    struct spa_pod_float* elem = (struct spa_pod_float*)&arr->body.child;
 
-        int volume = round(cbrt(elem->value) * 100);
-        float third = 100. / 3;
-        const char* icon = icons[(int)ceil(volume / third)];
-        char percentage[5];
+    int volume = round(cbrt(elem->value) * 100);
+    if (volume == state->current_volume) return;
+    state->current_volume = volume;
 
-        // Print the percentage (ie: 69%)
-        snprintf(percentage, 5, "%d%%", volume);
+    float third = 100. / 3;
+    const char* icon = icons[(int)ceil(volume / third)];
+    char percentage[5];
 
-        if (data->notification == NULL || notify_notification_get_closed_reason(data->notification) != -1) {
-            data->notification = notify_notification_new(percentage, NULL, icon);
-        } else {
-            notify_notification_update(data->notification, percentage, NULL, icon);
-        }
+    // Print the percentage (ie: 69%)
+    snprintf(percentage, 5, "%d%%", volume);
 
-        notify_notification_set_hint(data->notification, "value", g_variant_new_int32(volume));
-        notify_notification_set_timeout(data->notification, 3500);
-        notify_notification_show(data->notification, NULL);
+    if (state->notification == NULL || notify_notification_get_closed_reason(state->notification) != -1) {
+        state->notification = notify_notification_new(percentage, NULL, icon);
+    } else {
+        notify_notification_update(state->notification, percentage, NULL, icon);
     }
+
+    notify_notification_set_hint(state->notification, "value", g_variant_new_int32(volume));
+    notify_notification_set_timeout(state->notification, 3500);
+    notify_notification_show(state->notification, NULL);
 }
 
 static const struct pw_node_events node_events = {
@@ -93,19 +94,19 @@ static const struct pw_node_events node_events = {
     .param = node_param,
 };
 
-void search_default_sink(void* _data, uint32_t id, uint32_t permissions, const char* type, uint32_t version, const struct spa_dict* props) {
-    state_t* data = _data;
+void search_default_sink(void* data, uint32_t id, uint32_t permissions, const char* type, uint32_t version, const struct spa_dict* props) {
+    state_t* state = data;
 
-    if (data->node != NULL || strcmp(type, PW_TYPE_INTERFACE_Node) != 0) return;
+    if (state->node != NULL || strcmp(type, PW_TYPE_INTERFACE_Node) != 0) return;
 
     const char* name = spa_dict_lookup(props, "node.name");
 
-    if (strcmp(name, data->default_sink)) return;
+    if (strcmp(name, state->default_sink)) return;
 
-    data->node = pw_registry_bind(data->registry, id, type, PW_VERSION_CLIENT, 0);
+    state->node = pw_registry_bind(state->registry, id, type, PW_VERSION_CLIENT, 0);
     uint32_t param_id = 2;
-    pw_node_subscribe_params(data->node, &param_id, 1);
-    pw_node_add_listener(data->node, &data->node_listener, &node_events, data);
+    pw_node_subscribe_params(state->node, &param_id, 1);
+    pw_node_add_listener(state->node, &state->node_listener, &node_events, state);
 }
 
 static const struct pw_registry_events registry_sink_events = {
@@ -113,8 +114,8 @@ static const struct pw_registry_events registry_sink_events = {
     .global = search_default_sink,
 };
 
-int get_default_sink_name(void* _data, uint32_t subject, const char* key, const char* type, const char* value) {
-    state_t* data = _data;
+int get_default_sink_name(void* data, uint32_t subject, const char* key, const char* type, const char* value) {
+    state_t* state = data;
 
     if (value == NULL) return 0;
     if (spa_strstartswith(key, "default") && strstr(key, "audio.sink") == NULL) return 0;
@@ -133,21 +134,21 @@ int get_default_sink_name(void* _data, uint32_t subject, const char* key, const 
     SPA_POD_OBJECT_FOREACH(object, item) {
         if (item->key != 2) continue;
         char* name = (char*)&item->value + sizeof(struct spa_pod);
-        data->default_sink = name;
+        state->default_sink = name;
     }
 
     // Destroy the existing registry and listener
-    pw_proxy_destroy((struct pw_proxy*)data->registry);
-    spa_hook_remove(&data->registry_listener);
-    if (data->node != NULL) {
-        pw_proxy_destroy((struct pw_proxy*)data->node);
-        spa_hook_remove(&data->node_listener);
+    pw_proxy_destroy((struct pw_proxy*)state->registry);
+    spa_hook_remove(&state->registry_listener);
+    if (state->node != NULL) {
+        pw_proxy_destroy((struct pw_proxy*)state->node);
+        spa_hook_remove(&state->node_listener);
     }
-    data->node = NULL;
+    state->node = NULL;
 
     // Recreate the registry and re-register the listener
-    data->registry = pw_core_get_registry(data->core, PW_VERSION_REGISTRY, 0);
-    pw_registry_add_listener(data->registry, &data->registry_listener, &registry_sink_events, data);
+    state->registry = pw_core_get_registry(state->core, PW_VERSION_REGISTRY, 0);
+    pw_registry_add_listener(state->registry, &state->registry_listener, &registry_sink_events, state);
 
     return 0;
 }
@@ -157,17 +158,17 @@ static const struct pw_metadata_events metadata_events = {
     .property = get_default_sink_name,
 };
 
-static void search_default_metadata(void* _data, uint32_t id, uint32_t permissions, const char* type, uint32_t version, const struct spa_dict* props) {
-    state_t* data = _data;
+static void search_default_metadata(void* data, uint32_t id, uint32_t permissions, const char* type, uint32_t version, const struct spa_dict* props) {
+    state_t* state = data;
 
-    if (data->metadata != NULL || strcmp(type, PW_TYPE_INTERFACE_Metadata) != 0) return;
+    if (state->metadata != NULL || strcmp(type, PW_TYPE_INTERFACE_Metadata) != 0) return;
 
     const char* value = spa_dict_lookup(props, "metadata.name");
 
     if (strcmp(value, "default") != 0) return;
 
-    data->metadata = pw_registry_bind(data->registry, id, type, PW_VERSION_METADATA, 0);
-    pw_metadata_add_listener(data->metadata, &data->metadata_listener, &metadata_events, data);
+    state->metadata = pw_registry_bind(state->registry, id, type, PW_VERSION_METADATA, 0);
+    pw_metadata_add_listener(state->metadata, &state->metadata_listener, &metadata_events, state);
 }
 
 static const struct pw_registry_events registry_metadata_events = {
@@ -176,32 +177,32 @@ static const struct pw_registry_events registry_metadata_events = {
 };
 
 int main(int argc, char* argv[]) {
-    state_t data;
+    state_t state;
 
-    spa_zero(data);
+    spa_zero(state);
 
     SPA_TYPE_ROOT;
 
     notify_init("VolumeNotifier");
     pw_init(&argc, &argv);
 
-    data.loop = pw_main_loop_new(NULL);
-    data.context = pw_context_new(pw_main_loop_get_loop(data.loop), NULL, 0);
+    state.loop = pw_main_loop_new(NULL);
+    state.context = pw_context_new(pw_main_loop_get_loop(state.loop), NULL, 0);
 
-    data.core = pw_context_connect(data.context, NULL, 0);
+    state.core = pw_context_connect(state.context, NULL, 0);
 
-    data.registry = pw_core_get_registry(data.core, PW_VERSION_REGISTRY, 0);
+    state.registry = pw_core_get_registry(state.core, PW_VERSION_REGISTRY, 0);
 
-    pw_registry_add_listener(data.registry, &data.registry_listener, &registry_metadata_events, &data);
+    pw_registry_add_listener(state.registry, &state.registry_listener, &registry_metadata_events, &state);
 
-    pw_main_loop_run(data.loop);
+    pw_main_loop_run(state.loop);
 
-    pw_proxy_destroy((struct pw_proxy*)data.node);
-    pw_proxy_destroy((struct pw_proxy*)data.metadata);
-    pw_proxy_destroy((struct pw_proxy*)data.registry);
-    pw_core_disconnect(data.core);
-    pw_context_destroy(data.context);
-    pw_main_loop_destroy(data.loop);
+    pw_proxy_destroy((struct pw_proxy*)state.node);
+    pw_proxy_destroy((struct pw_proxy*)state.metadata);
+    pw_proxy_destroy((struct pw_proxy*)state.registry);
+    pw_core_disconnect(state.core);
+    pw_context_destroy(state.context);
+    pw_main_loop_destroy(state.loop);
     notify_uninit();
 
     return 0;
