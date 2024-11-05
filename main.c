@@ -74,7 +74,6 @@ static void node_param(void* data, int seq, uint32_t id, uint32_t index, uint32_
     int volume = round(cbrt(elem->value) * 100);
 
     float third = 100. / 3;
-    const char* icon = icons[(int)ceil(volume / third)];
     prop = spa_pod_object_find_prop(object, spa_pod_prop_first(&object->body), 65540);
 
     if (prop == NULL || prop->value.type != SPA_TYPE_Bool) return;
@@ -87,8 +86,15 @@ static void node_param(void* data, int seq, uint32_t id, uint32_t index, uint32_
     state->muted = muted;
 
     // Print the percentage (ie: 69%)
-    char percentage[5];
-    snprintf(percentage, 5, "%d%%", volume);
+    char percentage[13];
+    const char* icon;
+    if (state->muted) {
+        snprintf(percentage, 13, "(Muted) %d%%", volume);
+        icon = icons[0];
+    } else {
+        snprintf(percentage, 5, "%d%%", volume);
+        icon = icons[(int)ceil(volume / third)];
+    }
 
     if (state->notification == NULL || notify_notification_get_closed_reason(state->notification) != -1) {
         state->notification = notify_notification_new(percentage, NULL, icon);
