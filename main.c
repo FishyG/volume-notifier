@@ -1,3 +1,4 @@
+#include <getopt.h>
 #include <libnotify/notification.h>
 #include <libnotify/notify.h>
 #include <math.h>
@@ -56,6 +57,7 @@ typedef struct {
     char* default_sink;
     int current_volume;
     bool muted;
+    int uwu;
 } state_t;
 
 static void node_param(void* data, int seq, uint32_t id, uint32_t index, uint32_t next, const struct spa_pod* param) {
@@ -86,20 +88,28 @@ static void node_param(void* data, int seq, uint32_t id, uint32_t index, uint32_
     state->muted = muted;
 
     // Print the percentage (ie: 69%)
-    char percentage[13];
+    char percentage[20];
     const char* icon;
+    const char* summary;
+
     if (state->muted) {
-        snprintf(percentage, 13, "(Muted) %d%%", volume);
         icon = icons[0];
+        if (state->uwu) {
+            snprintf(percentage, 15, "(MUwUted) %d%%", volume);
+        } else {
+            snprintf(percentage, 13, "(Muted) %d%%", volume);
+        }
     } else {
         snprintf(percentage, 5, "%d%%", volume);
         icon = icons[(int)ceil(volume / third)];
     }
 
+    summary = percentage;
+
     if (state->notification == NULL || notify_notification_get_closed_reason(state->notification) != -1) {
-        state->notification = notify_notification_new(percentage, NULL, icon);
+        state->notification = notify_notification_new(summary, NULL, icon);
     } else {
-        notify_notification_update(state->notification, percentage, NULL, icon);
+        notify_notification_update(state->notification, summary, NULL, icon);
     }
 
     notify_notification_set_hint(state->notification, "value", g_variant_new_int32(volume));
@@ -206,6 +216,13 @@ int main(int argc, char* argv[]) {
     spa_zero(state);
 
     SPA_TYPE_ROOT;
+
+    struct option options[] = {
+        {"uwu", no_argument, &state.uwu, 1},
+        {NULL, 0, NULL, 0}
+    };
+
+    while (getopt_long(argc, argv, "", options, NULL) != -1);
 
     notify_init(APP_NAME);
     pw_init(&argc, &argv);
