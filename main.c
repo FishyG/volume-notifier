@@ -33,6 +33,26 @@ const char icons[4][20] = {
     "audio-volume-high",
 };
 
+// Feel free to add some more cute emoticons x3
+const char kawaii_emoticon[][30] = {
+    "≧☉ᆺ☉≦",
+    "(*≧ω≦)",
+    "(✿^‿^)",
+    "(≧◡≦✿)",
+    "ʕ •ᴥ•ʔ",
+    "(=◑ᆺ◐=)",
+    "≽^•⩊•^≼",
+    "/ᐠ｡ꞈ｡ᐟ\\",
+    "( ˶ˆ꒳ˆ˵ )",
+    "(´｡• ᵕ •｡`)",
+    "(＾• ω •＾)",
+    "(づ｡◕‿‿◕｡)づ",
+    "(づ￣ ³￣)づ",
+    "(ﾉ^ヮ^)ﾉ*:・ﾟ✧",
+    "(˶˃ ᵕ ˂˶) .ᐟ.ᐟ",
+    "ヘ(^_^ヘ) ヘ(^o^ヘ)",
+};
+
 const struct spa_type_info spa_type_param_default[] = {
     {0, SPA_TYPE_OBJECT_ParamProfile, "default", NULL},
     {0, 0, NULL, NULL},
@@ -58,6 +78,7 @@ typedef struct {
     int current_volume;
     bool muted;
     int uwu;
+    int kawaii;
 } state_t;
 
 static void node_param(void* data, int seq, uint32_t id, uint32_t index, uint32_t next, const struct spa_pod* param) {
@@ -90,6 +111,7 @@ static void node_param(void* data, int seq, uint32_t id, uint32_t index, uint32_
     // Print the percentage (ie: 69%)
     char percentage[20];
     const char* icon;
+    const char* body = NULL;
     const char* summary;
 
     if (state->muted) {
@@ -104,12 +126,19 @@ static void node_param(void* data, int seq, uint32_t id, uint32_t index, uint32_
         icon = icons[(int)ceil(volume / third)];
     }
 
-    summary = percentage;
+    if (state->kawaii) {
+        int kawaiicount = (int)(sizeof(kawaii_emoticon)/sizeof(kawaii_emoticon[0])/sizeof(kawaii_emoticon[0][0]));
+        body = percentage;
+        summary = kawaii_emoticon[rand() % kawaiicount];
+    } else {
+        summary = percentage;
+    }
 
     if (state->notification == NULL || notify_notification_get_closed_reason(state->notification) != -1) {
-        state->notification = notify_notification_new(summary, NULL, icon);
+        // if (state->uwu) {
+        state->notification = notify_notification_new(summary, body, icon);
     } else {
-        notify_notification_update(state->notification, summary, NULL, icon);
+        notify_notification_update(state->notification, summary, body, icon);
     }
 
     notify_notification_set_hint(state->notification, "value", g_variant_new_int32(volume));
@@ -219,6 +248,7 @@ int main(int argc, char* argv[]) {
 
     struct option options[] = {
         {"uwu", no_argument, &state.uwu, 1},
+        {"kawaii", no_argument, &state.kawaii, 1},
         {NULL, 0, NULL, 0}
     };
 
