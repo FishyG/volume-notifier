@@ -22,6 +22,8 @@
 #include "spa/utils/string.h"
 #include "spa/utils/type.h"
 
+#define APP_NAME "VolumeNotifier"
+
 const char icons[4][20] = {
     "audio-volume-muted",
     "audio-volume-low",
@@ -73,9 +75,9 @@ static void node_param(void* data, int seq, uint32_t id, uint32_t index, uint32_
 
     float third = 100. / 3;
     const char* icon = icons[(int)ceil(volume / third)];
-    char percentage[5];
 
     // Print the percentage (ie: 69%)
+    char percentage[5];
     snprintf(percentage, 5, "%d%%", volume);
 
     if (state->notification == NULL || notify_notification_get_closed_reason(state->notification) != -1) {
@@ -86,7 +88,13 @@ static void node_param(void* data, int seq, uint32_t id, uint32_t index, uint32_
 
     notify_notification_set_hint(state->notification, "value", g_variant_new_int32(volume));
     notify_notification_set_timeout(state->notification, 3500);
-    notify_notification_show(state->notification, NULL);
+
+    GError* error = NULL;
+    if (!notify_notification_show(state->notification, &error)) {
+        if (error->code != 2) return;
+        notify_uninit();
+        notify_init(APP_NAME);
+    }
 }
 
 static const struct pw_node_events node_events = {
@@ -183,7 +191,7 @@ int main(int argc, char* argv[]) {
 
     SPA_TYPE_ROOT;
 
-    notify_init("VolumeNotifier");
+    notify_init(APP_NAME);
     pw_init(&argc, &argv);
 
     state.loop = pw_main_loop_new(NULL);
