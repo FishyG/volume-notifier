@@ -2,6 +2,7 @@
 #include <libnotify/notify.h>
 #include <math.h>
 #include <pipewire/pipewire.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -54,6 +55,7 @@ typedef struct {
 
     char* default_sink;
     int current_volume;
+    bool muted;
 } state_t;
 
 static void node_param(void* data, int seq, uint32_t id, uint32_t index, uint32_t next, const struct spa_pod* param) {
@@ -70,11 +72,19 @@ static void node_param(void* data, int seq, uint32_t id, uint32_t index, uint32_
     struct spa_pod_float* elem = (struct spa_pod_float*)&arr->body.child;
 
     int volume = round(cbrt(elem->value) * 100);
-    if (volume == state->current_volume) return;
-    state->current_volume = volume;
 
     float third = 100. / 3;
     const char* icon = icons[(int)ceil(volume / third)];
+    prop = spa_pod_object_find_prop(object, spa_pod_prop_first(&object->body), 65540);
+
+    if (prop == NULL || prop->value.type != SPA_TYPE_Bool) return;
+
+    bool muted = ((struct spa_pod_bool*)&prop->value)->value;
+
+    if (volume == state->current_volume && muted == state->muted) return;
+
+    state->current_volume = volume;
+    state->muted = muted;
 
     // Print the percentage (ie: 69%)
     char percentage[5];
