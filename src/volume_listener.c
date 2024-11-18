@@ -1,85 +1,27 @@
-#include <getopt.h>
-#include <libnotify/notification.h>
+#include "../include/volume_listener.h"
+
 #include <libnotify/notify.h>
-#include <math.h>
 #include <pipewire/pipewire.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
-#include "glib.h"
-#include "pipewire/context.h"
 #include "pipewire/core.h"
 #include "pipewire/extensions/metadata.h"
 #include "pipewire/node.h"
-#include "pipewire/proxy.h"
 #include "spa/pod/builder.h"
 #include "spa/pod/iter.h"
 #include "spa/pod/pod.h"
-#include "spa/utils/defs.h"
 #include "spa/utils/dict.h"
 #include "spa/utils/json-pod.h"
 #include "spa/utils/string.h"
 #include "spa/utils/type.h"
 
-#define APP_NAME "VolumeNotifier"
-
-const char icons[4][20] = {
-    "audio-volume-muted",
-    "audio-volume-low",
-    "audio-volume-medium",
-    "audio-volume-high",
-};
-
-// Feel free to add some more cute emoticons x3
-const char kawaii_emoticon[][30] = {
-    "≧☉ᆺ☉≦",
-    "(*≧ω≦)",
-    "(✿^‿^)",
-    "(≧◡≦✿)",
-    "ʕ •ᴥ•ʔ",
-    "(=◑ᆺ◐=)",
-    "≽^•⩊•^≼",
-    "/ᐠ｡ꞈ｡ᐟ\\",
-    "( ˶ˆ꒳ˆ˵ )",
-    "(´｡• ᵕ •｡`)",
-    "(＾• ω •＾)",
-    "(づ｡◕‿‿◕｡)づ",
-    "(づ￣ ³￣)づ",
-    "(ﾉ^ヮ^)ﾉ*:・ﾟ✧",
-    "(˶˃ ᵕ ˂˶) .ᐟ.ᐟ",
-    "ヘ(^_^ヘ) ヘ(^o^ヘ)",
-};
+#include "../include/notification.h"
 
 const struct spa_type_info spa_type_param_default[] = {
     {0, SPA_TYPE_OBJECT_ParamProfile, "default", NULL},
     {0, 0, NULL, NULL},
 };
-
-typedef struct {
-    struct pw_main_loop* loop;
-    struct pw_context* context;
-    struct pw_core* core;
-
-    struct pw_registry* registry;
-    struct spa_hook registry_listener;
-
-    struct pw_metadata* metadata;
-    struct spa_hook metadata_listener;
-
-    NotifyNotification* notification;
-
-    struct pw_node* node;
-    struct spa_hook node_listener;
-
-    char* default_sink;
-    int current_volume;
-    bool muted;
-    int uwu;
-    int kawaii;
-} state_t;
 
 static void node_param(void* data, int seq, uint32_t id, uint32_t index, uint32_t next, const struct spa_pod* param) {
     if (param->type != SPA_TYPE_Object) return;
@@ -96,60 +38,18 @@ static void node_param(void* data, int seq, uint32_t id, uint32_t index, uint32_
 
     int volume = round(cbrt(elem->value) * 100);
 
-    float third = 100. / 3;
     prop = spa_pod_object_find_prop(object, spa_pod_prop_first(&object->body), 65540);
 
     if (prop == NULL || prop->value.type != SPA_TYPE_Bool) return;
 
     bool muted = ((struct spa_pod_bool*)&prop->value)->value;
 
-    if (volume == state->current_volume && muted == state->muted) return;
+    if (volume == state->volume && muted == state->muted) return;
 
-    state->current_volume = volume;
+    state->volume = volume;
     state->muted = muted;
 
-    // Print the percentage (ie: 69%)
-    char percentage[20];
-    const char* icon;
-    const char* body = NULL;
-    const char* summary;
-
-    if (state->muted) {
-        icon = icons[0];
-        if (state->uwu) {
-            snprintf(percentage, 15, "(MUwUted) %d%%", volume);
-        } else {
-            snprintf(percentage, 13, "(Muted) %d%%", volume);
-        }
-    } else {
-        snprintf(percentage, 5, "%d%%", volume);
-        icon = icons[(int)ceil(volume / third)];
-    }
-
-    if (state->kawaii) {
-        int kawaiicount = (int)(sizeof(kawaii_emoticon)/sizeof(kawaii_emoticon[0])/sizeof(kawaii_emoticon[0][0]));
-        body = percentage;
-        summary = kawaii_emoticon[rand() % kawaiicount];
-    } else {
-        summary = percentage;
-    }
-
-    if (state->notification == NULL || notify_notification_get_closed_reason(state->notification) != -1) {
-        // if (state->uwu) {
-        state->notification = notify_notification_new(summary, body, icon);
-    } else {
-        notify_notification_update(state->notification, summary, body, icon);
-    }
-
-    notify_notification_set_hint(state->notification, "value", g_variant_new_int32(volume));
-    notify_notification_set_timeout(state->notification, 3500);
-
-    GError* error = NULL;
-    if (!notify_notification_show(state->notification, &error)) {
-        if (error->code != 2) return;
-        notify_uninit();
-        notify_init(APP_NAME);
-    }
+    notify_state(state);
 }
 
 static const struct pw_node_events node_events = {
@@ -239,42 +139,33 @@ static const struct pw_registry_events registry_metadata_events = {
     .global = search_default_metadata,
 };
 
-int main(int argc, char* argv[]) {
-    state_t state;
-
-    spa_zero(state);
-
-    SPA_TYPE_ROOT;
-
-    struct option options[] = {
-        {"uwu", no_argument, &state.uwu, 1},
-        {"kawaii", no_argument, &state.kawaii, 1},
-        {NULL, 0, NULL, 0}
-    };
-
-    while (getopt_long(argc, argv, "", options, NULL) != -1);
-
+void init_listener(state_t *state) {
     notify_init(APP_NAME);
-    pw_init(&argc, &argv);
 
-    state.loop = pw_main_loop_new(NULL);
-    state.context = pw_context_new(pw_main_loop_get_loop(state.loop), NULL, 0);
+    state->loop = pw_main_loop_new(NULL);
+    state->context = pw_context_new(pw_main_loop_get_loop(state->loop), NULL, 0);
 
-    state.core = pw_context_connect(state.context, NULL, 0);
+    state->core = pw_context_connect(state->context, NULL, 0);
 
-    state.registry = pw_core_get_registry(state.core, PW_VERSION_REGISTRY, 0);
+    state->registry = pw_core_get_registry(state->core, PW_VERSION_REGISTRY, 0);
 
-    pw_registry_add_listener(state.registry, &state.registry_listener, &registry_metadata_events, &state);
+    pw_registry_add_listener(state->registry, &state->registry_listener, &registry_metadata_events, state);
+}
 
-    pw_main_loop_run(state.loop);
+void start_listener(state_t *state) {
+    init_listener(state);
 
-    pw_proxy_destroy((struct pw_proxy*)state.node);
-    pw_proxy_destroy((struct pw_proxy*)state.metadata);
-    pw_proxy_destroy((struct pw_proxy*)state.registry);
-    pw_core_disconnect(state.core);
-    pw_context_destroy(state.context);
-    pw_main_loop_destroy(state.loop);
+    pw_main_loop_run(state->loop);
+
+    cleanup_listener(state);
+}
+
+void cleanup_listener(state_t *state) {
+    pw_proxy_destroy((struct pw_proxy*)state->node);
+    pw_proxy_destroy((struct pw_proxy*)state->metadata);
+    pw_proxy_destroy((struct pw_proxy*)state->registry);
+    pw_core_disconnect(state->core);
+    pw_context_destroy(state->context);
+    pw_main_loop_destroy(state->loop);
     notify_uninit();
-
-    return 0;
 }
