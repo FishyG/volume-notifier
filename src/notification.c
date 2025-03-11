@@ -1,9 +1,10 @@
 #include "../include/notification.h"
 
-#include "glib.h"
 #include <libnotify/notification.h>
 #include <libnotify/notify.h>
 #include <math.h>
+
+#include "glib.h"
 
 const char icons[4][20] = {
     "audio-volume-muted",
@@ -32,7 +33,7 @@ const char kawaii_emoticon[][30] = {
     "ヘ(^_^ヘ) ヘ(^o^ヘ)",
 };
 
-void notify_state(state_t *state) {
+void notify_state(state_t* state) {
     // Print the percentage (ie: 69%)
     char percentage[20];
     const char* icon;
@@ -50,11 +51,13 @@ void notify_state(state_t *state) {
         }
     } else {
         snprintf(percentage, 5, "%d%%", state->volume);
-        icon = icons[(int)ceil(state->volume / third)];
+
+        // Cap the volume icon to 100
+        icon = icons[(int)ceil(((state->volume > 100) ? 100 : state->volume) / third)];
     }
 
     if (state->kawaii) {
-        int kawaiicount = (int)(sizeof(kawaii_emoticon)/sizeof(kawaii_emoticon[0])/sizeof(kawaii_emoticon[0][0]));
+        int kawaiicount = (int)(sizeof(kawaii_emoticon) / sizeof(kawaii_emoticon[0]) / sizeof(kawaii_emoticon[0][0]));
         body = percentage;
         summary = kawaii_emoticon[rand() % kawaiicount];
     } else {
