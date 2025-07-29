@@ -1,2 +1,2 @@
 ### TODO
-- nix flake
+- [x] nix flake (it's done)
