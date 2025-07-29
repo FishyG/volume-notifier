@@ -1,1 +1,4 @@
 build
+result
+compile_commands.json
+.cache
